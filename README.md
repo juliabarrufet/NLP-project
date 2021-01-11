@@ -4,7 +4,7 @@ This project consists on building an algorithm that is able to identify the key 
 
 This directory contains three different elements:
 * **Hotel_Reviews.csv**: A CSV file with the dataset.
-* **NLP_project.Rmd** An R Notebook of the project that will reproduce step by step, the procedure followed to develop the three analysis of reviews, from uploading the dataset to the generation of the graphical results.
+* **NLP_project.Rmd**: An R Notebook of the project that will reproduce step by step, the procedure followed to develop the three analysis of reviews, from uploading the dataset to the generation of the graphical results.
 * **NLP_project.html**: An HTML file containing the rendered version of the R Notebook, together with brief explanations of the procedure and the conclusions of each analysis.
 * **NLP_project_report.pdf**: A four pages report of the developed project.
 
