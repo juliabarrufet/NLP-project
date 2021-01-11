@@ -1,0 +1,447 @@
+---
+title: "Development of a text mining tool to assess hotel reviews"
+author: "Julia Barrufet"
+output: html_notebook
+classoption: "noextraspace"
+---
+<style type="text/css">
+
+h1.title {
+  font-size: 30px;
+  color: DarkBlue;
+}
+
+</style>
+\parskip=0pt
+
+### 1. Prepare the environment
+
+Set the working directory and load the installed libraries:
+```{r}
+setwd("~/Documents/NLP")
+library(tm) #text mining
+library(ggplot2)
+library(RWeka)
+library(reshape2)
+library(SnowballC)
+library(gridExtra)
+library(knitr)
+library(kableExtra)
+```
+<br><br>
+
+### 2. Preprocess the dataset
+<br>
+
+Load the dataset as a dataframe:
+```{r}
+df_complete=read.csv("Hotel_Reviews.csv",header=TRUE,sep=",", stringsAsFactors = FALSE)
+```
+<br>
+
+Get the data from the hotel with the largest number of reviews:
+```{r}
+df <- df_complete[df_complete$Hotel_Name == "Britannia International Hotel Canary Wharf",]
+```
+<br>
+
+Divide the data into two dataframes, one for positive comments and one for negative comments: 
+```{r}
+pos <- df$Positive_Review
+neg <- df$Negative_Review
+```
+<br>
+
+Remove empty comments:
+```{r}
+pos <- pos[!pos == "No Positive"]
+neg <- neg[!neg == "No Negative"]
+neg <- neg[!neg == "Nothing"]
+```
+<br>
+
+Transform the dataframes into corpus:
+```{r}
+corpus.pos = VCorpus(VectorSource(pos))
+corpus.neg = VCorpus(VectorSource(neg))
+```
+<br><br>
+
+### 3. Processing of documents
+<br>
+
+#### 3.1. Building a TDM
+Build the term document matrix of each group of reviews:
+```{r}
+tdmp = TermDocumentMatrix(corpus.pos)
+tdmn = TermDocumentMatrix(corpus.neg)
+```
+<br>
+
+Obtain the most frequent words in the positive reviews:
+```{r}
+freqp=rowSums(as.matrix(tdmp))
+topwords=head(sort(freqp, decreasing=TRUE),n=20)
+```
+
+```{r echo=FALSE}
+print("Most frequent words in positive reviews:")
+topwords
+```
+As we can see, the information displayed above does not really give useful information, since the majority of the most frequent words are connectors, determinants or verbs. In the following section we will see how the documents should be processed in order to transform them into a sentence formed by the essential content of the text.
+
+<br><br>
+
+#### 3.2. Transformation of a single document
+<br>
+In this section we will transform the text contained on one of the documents in order to understand the steps we need to follow.
+
+Create a document:
+```{r}
+doc_in=corpus.pos[150]
+```
+<br>
+
+Apply transformations:
+```{r}
+# Remove punctuation:
+doc = tm_map(doc_in,removePunctuation)
+
+# Remove numbers:
+doc = tm_map(doc,removeNumbers)
+
+# Remove extra white space:
+doc = tm_map(doc,stripWhitespace)
+
+# Convert to lowercase
+doc = tm_map(doc,tolower)
+
+# Remove stop words:
+doc = tm_map(doc,removeWords,stopwords())
+
+# Stem the document (deduce inflected or derived words to their word stem):
+doc = tm_map(doc,stemDocument)
+```
+
+```{r  echo=FALSE}
+paste("Initial document:",doc_in[[1]]$content[1])
+paste("Transformed document:",doc[[1]])
+```
+<br><br>
+
+### 4. Experiments and results
+<br>
+
+#### 4.1. Study of the most frequent terms
+
+After seeing in the previous section how documents should be transformed, we apply the presented transformations to the two corpus to build a TDM with the documents properly arranged:
+```{r}
+tdmp = TermDocumentMatrix(corpus.pos,control=list(removePunctuation = T, 
+                                             stripWhitespace = T,
+                                             removeNumbers = T,     
+                                             tolower= T, 
+                                             stopwords = T,
+                                             stemming = T))
+
+tdmn = TermDocumentMatrix(corpus.neg,control=list(removePunctuation = T, 
+                                             stripWhitespace = T,
+                                             removeNumbers = T,     
+                                             tolower= T, 
+                                             stopwords = T,
+                                             stemming = T))
+```
+<br>
+
+Check the 20 most frequent words in positive reviews:
+```{r}
+freqp=rowSums(as.matrix(tdmp))
+topwords=head(sort(freqp, decreasing=TRUE),n=20)
+```
+
+```{r echo=FALSE}
+print("Most frequent words in positive reviews (after applying transformations):")
+topwords
+```
+In the list displayed we can see the most popular words obtained after removing stop words, punctuation and additional space, and after stemming the words in the text. The information displayed in this case is significantly more useful than what we obtained in Section 3. However, many of the words still seem unnecessary for our study. Words like "hotel" and "room" will obviously be repeated in the review list of a hotel. And since we are exploring the content of positive reviews, words like "nice" or "good" will also be very frequent but do not give relevant information to understand what are the characteristics of the hotel that guests value as positive.
+
+For this reason, we are going to add **custom stop words** to the list of words that are removed from the texts.
+
+```{r}
+# Terms indicating positivity or negativity
+positive_words=c("good","nice","great","well","like","excellent","best","love")
+negative_words=c("bad","didn")
+
+# Terms related to the hotel semanthics
+hotel_words=c("hotel","bedroom","room","rooms","night","nights","stay","stayed","day","days","boyfriend","girlfriend","friend","friends", "britannia","international",  "canary", "wharf")
+
+# Words that do not give relevant information but are repeated several times and distort our results
+notrelevant_words=c("one","get","just","also","even","will","time","nothing")
+
+myStopwords.pos = c(stopwords(),positive_words,hotel_words,notrelevant_words)
+myStopwords.neg = c(stopwords(),negative_words,hotel_words,notrelevant_words)
+```
+<br>
+
+Compute the TDM with the new list custom stop words:
+```{r}
+tdmp = TermDocumentMatrix(corpus.pos,control=list(removePunctuation = T, 
+                                             stripWhitespace = T,
+                                             removeNumbers = T,     
+                                             tolower= T, 
+                                             stopwords = myStopwords.pos,
+                                             stemming = T))
+tdmn = TermDocumentMatrix(corpus.neg,control=list(removePunctuation = T, 
+                                             stripWhitespace = T,
+                                             removeNumbers = T,     
+                                             tolower= T, 
+                                             stopwords = myStopwords.neg,
+                                             stemming = T))
+```
+<br>
+
+Show a histogram containing the 20 most repeated words for each type of review:
+```{r}
+freqp=rowSums(as.matrix(tdmp))
+topwordspos=head(sort(freqp, decreasing=TRUE),n=10)
+
+hfp_pos=as.data.frame(topwordspos)
+hfp_pos$names <- rownames(hfp_pos) 
+p1 <- ggplot(hfp_pos, aes(reorder(names,topwordspos), topwordspos, width=.7))
+
+p1_2  <- p1 +
+  geom_bar(stat="identity") + coord_flip() + 
+  xlab("Terms") + ylab("Frequency") +
+  ggtitle("Most frequent words from positive reviews")+
+  theme(plot.title = element_text(size = 9),aspect.ratio=3/4)
+
+freqn=rowSums(as.matrix(tdmn))
+topwordsneg=head(sort(freqn, decreasing=TRUE),n=10)
+
+hfp_neg=as.data.frame(topwordsneg)
+hfp_neg$names <- rownames(hfp_neg) 
+p2 <- ggplot(hfp_neg, aes(reorder(names,topwordsneg), topwordsneg, width=.7))
+
+p2_2 <- p2 +
+  geom_bar(stat="identity") + coord_flip() + 
+  xlab("Terms") + ylab("Frequency") +
+  ggtitle("Most frequent words from negative reviews") +
+  theme(plot.title = element_text(size = 9),aspect.ratio=3/4)
+
+grid.arrange(p1_2, p2_2, ncol=2 )
+```
+The results shown in this graphic give an idea of the elements that customers liked or disliked from the Hotel. We can easily notice that “staff” is appearing at the top of both graphics, which probably means that customers merely mention them in their reviews in order to explain an anecdote (positive or negative) where they interacted with the Hotel staff. For a better understanding of situations like this (also found for the term “bed”, for example), we will perform other types of analysis in the following section. However, from this results, we can see that the location, the cleaning and the view are the characteristics of the Hotel that users valuate more positively. The beds, the breakfast and the windows are the elements for which customers have more complaints. 
+<br><br>
+
+
+**Create a TDM with TF-IDF weights**
+<br>
+
+Even the results obtained in the previous section are correct, a more accurate version of the TDM can be calculate by giving weights to specific terms. In this case we assign higher weights to those words appearing in more documents (regardless of how many times a word might be repeated in a single document). This gives a more reliable result since we can not be distracted by cases where a guest might repeat too many times a specific term.
+
+```{r}
+tdmp.tfidf = TermDocumentMatrix(corpus.pos,
+                               control = list(weighting = weightTfIdf,
+                                              tolower = T,
+                                              removePunctuation = T,
+                                              stopwords = myStopwords.pos, 
+                                              removeNumbers = T,
+                                              stemming = T))
+
+tdmn.tfidf = TermDocumentMatrix(corpus.neg,
+                               control = list(weighting = weightTfIdf,
+                                              tolower = T,
+                                              removePunctuation = T,
+                                              stopwords = myStopwords.neg, 
+                                              removeNumbers = T,
+                                              stemming = T))
+```
+<br>
+
+A histogram containing the 20 most repeated words for each type of review has also been created:
+```{r}
+freqp=rowSums(as.matrix(tdmp.tfidf))
+topwordspos=head(sort(freqp, decreasing=TRUE),n=10)
+hfp.df=as.data.frame(topwordspos)
+hfp.df$names <- rownames(hfp.df) 
+p3 <- ggplot(hfp.df, aes(reorder(names,topwordspos), topwordspos)) +
+  geom_bar(stat="identity") + coord_flip() + 
+  xlab("Terms") + ylab("Weight") +
+  ggtitle("Top words in positive reviews (TDM with IDF)") +
+  theme(plot.title = element_text(size = 9),aspect.ratio=3/5)
+
+
+freqn=rowSums(as.matrix(tdmn.tfidf))
+topwordsneg=head(sort(freqn, decreasing=TRUE),n=10)
+hfp.df=as.data.frame(topwordsneg)
+hfp.df$names <- rownames(hfp.df) 
+p4 <- ggplot(hfp.df, aes(reorder(names,topwordsneg), topwordsneg)) +
+  geom_bar(stat="identity") + coord_flip() + 
+  xlab("Terms") + ylab("Weight") +
+  ggtitle("Top words in negative reviews (TDM with IDF)") +
+  theme(plot.title = element_text(size = 9),aspect.ratio=3/5)
+
+grid.arrange(p1_2, p2_2, p3, p4, ncol=2)
+```
+We can see that the results obtained with the new TDM are very similar to those obtained before, even though the order has changed for some of the terms. For example, in the histograms obtained with the weighted TDM the term "staff" doesn't have the importance it had previously, which might indicate that it was often used several times in the same comment.
+<br><br>
+
+#### 4.2. Association analysis
+
+To continue with our study, we can make an analysis of what words are more frequently associated with others. In our case we are going to explore which words have a higher association to terms that indicate both positivity and negativity.
+
+First, we build the TDM, removing the same terms as before except for those associated with positive or negative sentiments;
+
+```{r}
+myStopwords.asoc = c(stopwords(),hotel_words,notrelevant_words)
+
+tdmp.asoc = TermDocumentMatrix(corpus.pos,control=list(removePunctuation = T, 
+                                                  tolower = T,
+                                                  stopwords = myStopwords.asoc,
+                                                  removeNumbers = T,
+                                                  stemming = T))
+tdmn.asoc = TermDocumentMatrix(corpus.neg,control=list(removePunctuation = T, 
+                                                  tolower = T,
+                                                  stopwords = myStopwords.asoc,
+                                                  removeNumbers = T,
+                                                  stemming = T))
+```
+
+We use the `findAssocs()` function to find the words that have greater correlations with the terms "good" and "bad": 
+```{r}
+asoc.pos <- findAssocs(tdmp.asoc,"good", 0.1)
+asoc.neg <- findAssocs(tdmn.asoc,"bad",0.1)
+
+good <- as.data.frame(head(asoc.pos$good,12))
+bad <- as.data.frame(head(asoc.neg$bad,12))
+colnames(good)<-"Correlation with Good"
+colnames(bad)<-"Correlation with Bad"
+
+
+```
+
+List of the words that are more correlated with "good" and "bad":
+```{r echo = FALSE}
+
+kable(t(good)) %>%
+  kable_styling(full_width = FALSE, position = "float_left")
+kable(t(bad)) %>%
+  kable_styling(full_width = FALSE, position = "left")
+
+```
+
+In this case, from the first list we can clearly see that the words that are more often associated with "good" are: value, breakfast, location, price, size... 
+
+On the other hand, the results obtained for "bad" are more confusing. Even most of the words shown might seem irrelevant, we can deduce that the elements more associated with "bad" are: separate (beds, probably), advice, cafe, website...
+<br><br>
+
+#### 4.3. Analysis of most frequent n-grams
+
+Following the same steps as in Section 3, we can look for the n-grams that appear in the text with a higher frequence. This will allow us to identify:
+
+* Compound terms that we couldn't catch in the first analysis.
+* A characteristic that makes something be positive or negative.
+
+First we build the corpus we will use to identify these n-grams, removing some auxiliar terms that usually appear together with others and might hinder our goal:
+```{r}
+corpus.ngrams.pos = tm_map(corpus.pos,removePunctuation)
+corpus.ngrams.pos = tm_map(corpus.ngrams.pos,removeWords,c(myStopwords.pos,"s","ve","I","the","The","t", "Canary"))
+corpus.ngrams.pos = tm_map(corpus.ngrams.pos,removeNumbers)
+
+corpus.ngrams.neg = tm_map(corpus.neg,removePunctuation)
+corpus.ngrams.neg = tm_map(corpus.ngrams.neg,removeWords,c(myStopwords.neg,"s","ve","I","the","The","t","Canary"))
+corpus.ngrams.neg = tm_map(corpus.ngrams.neg,removeNumbers)
+```
+<br>
+
+**Bigrams**
+
+Create a function that assigns tokens to bigrams in order to count their appearances in the documents:
+```{r}
+BigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+```
+<br>
+
+Build a TDM with tokenized bigrams for each corpus:
+```{r}
+tdmp.bigram = TermDocumentMatrix(corpus.ngrams.pos,
+                                control = list (tokenize = BigramTokenizer))
+
+tdmn.bigram = TermDocumentMatrix(corpus.ngrams.neg,
+                                control = list (tokenize = BigramTokenizer))
+```
+<br>
+
+**Trigrams**
+
+Create a function that assigns tokens to trigrams in order to count their appearances in the documents:
+```{r}
+TrigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+```
+<br>
+
+Build a TDM with tokenized trigrams for each corpus:
+```{r}
+tdmp.trigram = TermDocumentMatrix(corpus.ngrams.pos,
+                                control = list (tokenize = TrigramTokenizer))
+
+tdmn.trigram = TermDocumentMatrix(corpus.ngrams.neg,
+                                control = list (tokenize = TrigramTokenizer))
+```
+<br>
+
+
+Get the most frequent bigrams and trigrams in each group of reviews:
+```{r}
+
+# Most frequent bigrams in positive reviews
+freqp.bi = sort(rowSums(as.matrix(tdmp.bigram)),decreasing = TRUE)
+top=head(sort(freqp.bi, decreasing=TRUE),n=10)
+hfp.df=as.data.frame(top)
+hfp.df$names <- rownames(hfp.df) 
+p1 <- ggplot(hfp.df, aes(reorder(names,top), top)) +
+  geom_bar(stat="identity") + coord_flip() + 
+  xlab("Bigrams") + ylab("Frequency") +
+  ggtitle("Top bigrams in positive reviews") +
+  theme(plot.title = element_text(size = 10),aspect.ratio=3/5)
+
+# Most frequent bigrams in negative reviews
+freqn.bi = sort(rowSums(as.matrix(tdmn.bigram)),decreasing = TRUE)
+top=head(sort(freqn.bi, decreasing=TRUE),n=10)
+hfp.df=as.data.frame(top)
+hfp.df$names <- rownames(hfp.df) 
+p2 <- ggplot(hfp.df, aes(reorder(names,top), top)) +
+  geom_bar(stat="identity") + coord_flip() + 
+  xlab("Bigrams") + ylab("Frequency") +
+  ggtitle("Top bigrams in negative reviews") +
+  theme(plot.title = element_text(size = 10) ,aspect.ratio=3.4/5)
+
+# Most frequent trigrams in positive reviews
+freqp.tri = sort(rowSums(as.matrix(tdmp.trigram)),decreasing = TRUE)
+top=head(sort(freqp.tri, decreasing=TRUE),n=10)
+hfp.df=as.data.frame(top)
+hfp.df$names <- rownames(hfp.df) 
+p3 <- ggplot(hfp.df, aes(reorder(names,top), top)) +
+  geom_bar(stat="identity") + coord_flip() + 
+  xlab("Trigrams") + ylab("Frequency") +
+  ggtitle("Top trigrams in positive reviews") +
+  theme(plot.title = element_text(size = 10),aspect.ratio=4/5)
+
+# Most frequent trigrams in negative reviews
+freqn.tri = sort(rowSums(as.matrix(tdmn.trigram)),decreasing = TRUE)
+top=head(sort(freqn.tri, decreasing=TRUE),n=10)
+hfp.df=as.data.frame(top)
+hfp.df$names <- rownames(hfp.df) 
+p4 <- ggplot(hfp.df, aes(reorder(names,top), top)) +
+  geom_bar(stat="identity") + coord_flip() + 
+  xlab("Trigrams") + ylab("Frequency") +
+  ggtitle("Top trigrams in negative reviews") +
+  theme(plot.title = element_text(size = 10),aspect.ratio=4/5)
+
+grid.arrange(p1, p2, p3, p4, ncol=2)
+```
+The results obtained in this section are the ones that give more useful information:
+
+* From the study of the most frequent terms in positive reviews we saw that location and staff where the two most repeated terms. Here we can see what adjectives are most commonly found together with these terms. In summary, we can deduce that the staff is friendly and helpful and the location is great for most of the customers. We can also see that they consider the beds are comfortable and the hotel offers a good value for the money they pay.
+
+* In the case of bad reviews, we saw that bed, breakfast and wifi were the terms from which we could extract more information. Through this n-grams study we can see that customers do not only think that beds are not comfortable, but they complain about the fact of finding two separate beds instead of double beds, they are disappointed because there is no free wifi and we also discovered that the air conditioning does not work well. These issues could not be appreciated in the single term study because the importance of the issue comes up when specific bigrams such as "separated beds" or "air conditioning" are put together.
+
